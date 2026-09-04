@@ -1,15 +1,246 @@
-name: AI Movie Generation
-on: [push, workflow_dispatch]
+name: Generate Movie
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'requirements.txt'
+
 jobs:
   generate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: '3.11'}
-      - run: pip install -r requirements.txt
-      - run: python scripts/make_movie.py
-      - uses: actions/upload-artifact@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          name: movie
-          path: output/
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install edge-tts httpx numpy opencv-python-headless
+          pip install --user https://github.com/flyworks/flyworks-mcp/archive/main.zip || true
+      
+      - name: Check Agnes API
+        run: |
+          echo "Agnes API key available: ${{ secrets.AGNES_API_KEY != '' }}"
+      
+      - name: Generate characters
+        run: |
+          mkdir -p output/{characters,keyframes,scenes,audio}
+          python3 -c "
+          import urllib.request, json, ssl, os, asyncio, edge_tts
+          import cv2
+          
+          token = '${{ secrets.AGNES_API_KEY }}'
+          headers = {'Authorization': f'Bearer {token}'}
+          
+          characters = {
+              'linmo': 'Chinese ink wash painting style, young swordsman Lin Mo, 20 years old, wearing cyan traditional Chinese robe, hair tied in topknot, determined eyes, holding ancient black sword with ink-like patterns flowing on blade, martial arts pose, dynamic composition, traditional Chinese art meets anime aesthetic, highly detailed, masterpiece',
+              'suwaner': 'Chinese ink wash painting style, elegant female swordswoman Su Waner, 18 years old, wearing pure white flowing robes, long black hair in elegant updo, cold beautiful face, holding slender jade sword, fairy-like aura, standing on mountain peak with clouds, wuxia fantasy, highly detailed, masterpiece',
+              'xuemojun': 'Chinese ink wash painting style, demonic villain Blood Hand Demon Lord, 50 years old, wearing black dark robes with red accents, menacing red face with sharp features, holding blood-red broadsword, evil glowing red eyes, dark energy swirling around, wuxia horror, highly detailed, masterpiece',
+              'old_beggar': 'Chinese ink wash painting style, mysterious old beggar, 60 years old, wearing tattered brown robes, holding wine gourd, appearing crazy but with hidden wisdom in eyes, sitting under ancient pine tree, zen atmosphere, traditional Chinese painting style, highly detailed, masterpiece'
+          }
+          
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+          
+          os.makedirs('output/characters', exist_ok=True)
+          for char_id, prompt in characters.items():
+              path = f'output/characters/{char_id}.png'
+              if not os.path.exists(path):
+                  payload = json.dumps({'prompt': prompt, 'size': '1920x1080', 'quality': 'hd', 'style': 'china_ink'}).encode()
+                  req = urllib.request.Request('https://api.agnes-ai.space/v1/images/generations', data=payload, headers={**headers, 'Content-Type': 'application/json'}, method='POST')
+                  try:
+                      resp = urllib.request.urlopen(req, context=ctx, timeout=120)
+                      result = json.loads(resp.read())
+                      if 'data' in result and len(result['data']) > 0:
+                          img_data = urllib.request.urlopen(result['data'][0]['url'], context=ctx).read()
+                          with open(path, 'wb') as f:
+                              f.write(img_data)
+                          print(f'Generated {char_id}')
+                  except Exception as e:
+                      print(f'Error {char_id}: {e}')
+          "
+      
+      - name: Generate scenes
+        run: |
+          python3 -c "
+          import urllib.request, json, ssl, os
+          
+          token = '${{ secrets.AGNES_API_KEY }}'
+          headers = {'Authorization': f'Bearer {token}'}
+          
+          scenes = [
+              ('scene_01', '小镇清晨', 'Chinese ink wash painting style, quiet ancient Chinese town at dawn, morning mist, bluestone paths, distant green mountains, peaceful atmosphere, traditional Chinese architecture'),
+              ('scene_02', '铁匠铺', 'Chinese ink wash painting style, blacksmith workshop interior, forge fire burning bright, sparks flying, young man forging sword, sweat dripping, warm lighting'),
+              ('scene_03', '墨影剑出世', 'Chinese ink wash painting style, ancient black sword emerging from ground, ink-like patterns flowing on blade surface, mystical energy, dark purple aura'),
+              ('scene_04', '追逐战', 'Chinese ink wash painting style, dramatic chase scene, young swordsman running through narrow alleys, dark figures pursuing, dynamic motion blur'),
+              ('scene_05', '苏婉儿战斗', 'Chinese ink wash painting style, beautiful female warrior in white fighting multiple enemies, sword light like rainbow, petals floating, elegant combat'),
+              ('scene_06', '密林相遇', 'Chinese ink wash painting style, moonlit forest, white-clad woman discovering hidden figure in cave, moonbeams through leaves, mysterious atmosphere'),
+              ('scene_07', '武当山', 'Chinese ink wash painting style, Mount Wudang, clouds swirling around ancient temple, ethereal atmosphere, spiritual energy, traditional Chinese landscape'),
+              ('scene_08', '老乞丐现身', 'Chinese ink wash painting style, mysterious old beggar drinking wine under ancient tree, appearing sloppy but with wise eyes'),
+              ('scene_09', '剑圣对决', 'Chinese ink wash painting style, epic sword duel between young swordsman and old master, ink energy waves colliding, mountains shifting'),
+              ('scene_10', '血手魔君来袭', 'Chinese ink wash painting style, dark clouds gathering over Mount Wudang, demonic army approaching, red sky, terrifying atmosphere'),
+              ('scene_11', '大规模战斗', 'Chinese ink wash painting style, massive battle scene, multiple martial artists fighting demons, sword beams everywhere, epic composition'),
+              ('scene_12', '墨影千重', 'Chinese ink wash painting style, spectacular special move, thousand layers of black ink energy swirling, overwhelming power'),
+              ('scene_13', '最终对决', 'Chinese ink wash painting style, final duel between hero and demon lord, black and red energy clashing, heavens splitting'),
+              ('scene_14', '封印完成', 'Chinese ink wash painting style, magical seal activated, golden light exploding from ground, demons being sealed'),
+              ('scene_15', '和平重现', 'Chinese ink wash painting style, peaceful ancient Chinese town restored, sunlight breaking through clouds, people smiling'),
+              ('scene_16', '结局', 'Chinese ink wash painting style, young heroes standing on mountain peak overlooking Jianghu, ink scroll unfurling'),
+          ]
+          
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+          
+          os.makedirs('output/keyframes', exist_ok=True)
+          for scene_id, name, prompt in scenes:
+              path = f'output/keyframes/{scene_id}.png'
+              if not os.path.exists(path):
+                  payload = json.dumps({'prompt': prompt, 'size': '1920x1080', 'quality': 'hd', 'style': 'china_ink'}).encode()
+                  req = urllib.request.Request('https://api.agnes-ai.space/v1/images/generations', data=payload, headers={**headers, 'Content-Type': 'application/json'}, method='POST')
+                  try:
+                      resp = urllib.request.urlopen(req, context=ctx, timeout=120)
+                      result = json.loads(resp.read())
+                      if 'data' in result and len(result['data']) > 0:
+                          img_data = urllib.request.urlopen(result['data'][0]['url'], context=ctx).read()
+                          with open(path, 'wb') as f:
+                              f.write(img_data)
+                          print(f'Generated {scene_id}')
+                  except Exception as e:
+                      print(f'Error {scene_id}: {e}')
+              import time; time.sleep(1)
+          "
+      
+      - name: Create videos
+        run: |
+          python3 -c "
+          import cv2, os, json, subprocess
+          from pathlib import Path
+          
+          chars_dir = 'output/characters'
+          scenes_dir = 'output/keyframes'
+          video_dir = 'output/scenes'
+          os.makedirs(video_dir, exist_ok=True)
+          
+          # Scene videos (60s each)
+          for i, f in enumerate(sorted(scenes_dir.glob('scene_*.png'))):
+              out = f'{video_dir}/scene_{i+1:02d}.mp4'
+              if not os.path.exists(out):
+                  img = cv2.imread(str(f))
+                  if img is not None:
+                      h, w = img.shape[:2]
+                      total_frames = int(24 * 60)
+                      fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                      out_v = cv2.VideoWriter(out, fourcc, 24, (1920, 1080))
+                      for j in range(total_frames):
+                          t = j / total_frames
+                          ease = t * t * (3 - 2 * t)
+                          zoom = 1.0 + 0.12 * ease
+                          new_w = int(w / zoom)
+                          new_h = int(h / zoom)
+                          x1 = max(0, int((w - new_w) / 2) + int(5 * ease))
+                          y1 = max(0, int((h - new_h) / 2) - int(8 * ease))
+                          cropped = img[y1:y1+new_h, x1:x1+new_w]
+                          resized = cv2.resize(cropped, (1920, 1080), interpolation=cv2.INTER_LANCZOS4)
+                          out_v.write(resized)
+                      out_v.release()
+                      print(f'Created {out}')
+          
+          # Dialog videos (5s each)
+          dialogs = [
+              ('linmo', 'zh-CN-YunxiNeural', '这把剑还没打好，师父说剑要有魂，魂在气中。'),
+              ('voice', 'zh-CN-YunyangNeural', '墨影剑认主，凡人，你可愿承担它的命运？'),
+              ('xuemojun', 'zh-CN-YunhaoNeural', '墨影剑终于出现了，小娃娃把剑交出来饶你不死。'),
+              ('suwaner', 'zh-CN-XiaoyiNeural', '你们这些邪魔外道竟敢追杀无辜之人今日便让你见识见识武当剑法。'),
+              ('suwaner', 'zh-CN-XiaoyiNeural', '你是什么人为何持有墨影剑'),
+              ('linmo', 'zh-CN-YunxiNeural', '我也不知道它就自己出现在我手里的。'),
+              ('old_beggar', 'zh-CN-YunyangNeural', '小子你手里那把剑可是烫手山芋啊继续逃避还是站出来。'),
+              ('linmo', 'zh-CN-YunxiNeural', '我明白了墨影不是用来控制的是用来守护的。'),
+              ('linmo', 'zh-CN-YunxiNeural', '我不是要赢你我是要终结这一切。'),
+              ('linmo', 'zh-CN-YunxiNeural', '我只是做了该做的接下来我们继续守护这片江湖。'),
+          ]
+          
+          import asyncio
+          import edge_tts
+          
+          os.makedirs('output/audio', exist_ok=True)
+          for i, (char, voice, text) in enumerate(dialogs):
+              audio_path = f'output/audio/dlg_{i+1:02d}.mp3'
+              video_path = f'{video_dir}/dialog_{i+1:02d}.mp4'
+              
+              # Generate audio
+              if not os.path.exists(audio_path):
+                  communicate = edge_tts.Communicate(text, voice)
+                  asyncio.run(communicate.save(audio_path))
+              
+              # Generate video from character image
+              char_img = f'{chars_dir}/{char if char != \"voice\" else \"linmo\"}.png'
+              if os.path.exists(char_img) and not os.path.exists(video_path):
+                  # Get audio duration
+                  r = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'json', audio_path], capture_output=True, text=True)
+                  try:
+                      dur = float(json.loads(r.stdout)['format']['duration'])
+                  except:
+                      dur = 5.0
+                  
+                  img = cv2.imread(char_img)
+                  if img is not None:
+                      h, w = img.shape[:2]
+                      total_frames = int(24 * dur)
+                      fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                      out_v = cv2.VideoWriter(video_path, fourcc, 24, (1920, 1080))
+                      for j in range(total_frames):
+                          t = j / total_frames
+                          ease = t * t * (3 - 2 * t)
+                          zoom = 1.0 + 0.12 * ease
+                          new_w = int(w / zoom)
+                          new_h = int(h / zoom)
+                          x1 = max(0, int((w - new_w) / 2) + int(5 * ease))
+                          y1 = max(0, int((h - new_h) / 2) - int(8 * ease))
+                          cropped = img[y1:y1+new_h, x1:x1+new_w]
+                          resized = cv2.resize(cropped, (1920, 1080), interpolation=cv2.INTER_LANCZOS4)
+                          out_v.write(resized)
+                      out_v.release()
+                      
+                      # Merge audio
+                      subprocess.run(['ffmpeg', '-y', '-i', video_path, '-i', audio_path, '-c:v', 'copy', '-c:a', 'aac', '-shortest', video_path.replace('.mp4', '_final.mp4')], capture_output=True)
+                      if os.path.exists(video_path.replace('.mp4', '_final.mp4')):
+                          os.replace(video_path.replace('.mp4', '_final.mp4'), video_path)
+                      print(f'Created dialog {i+1}')
+          "
+      
+      - name: Synthesize movie
+        run: |
+          python3 -c "
+          import subprocess, os, glob
+          
+          video_files = sorted(glob.glob('output/scenes/scene_*.mp4') + glob.glob('output/scenes/dialog_*.mp4'))
+          print(f'Found {len(video_files)} videos')
+          
+          list_file = 'output/concat_list.txt'
+          with open(list_file, 'w') as f:
+              for v in video_files:
+                  f.write(f\"file '{v}'\\n\")
+          
+          cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', list_file, '-c', 'copy', '-movflags', '+faststart', 'ink-shadow-sword-complete.mp4']
+          r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+          
+          if r.returncode == 0 and os.path.exists('ink-shadow-sword-complete.mp4'):
+              size_mb = os.path.getsize('ink-shadow-sword-complete.mp4') / (1024*1024)
+              print(f'SUCCESS: ink-shadow-sword-complete.mp4 ({size_mb:.1f} MB)')
+          else:
+              print(f'FAILED: {r.stderr[:200]}')
+          "
+      
+      - name: Upload movie
+        uses: actions/upload-artifact@v4
+        with:
+          name: ink-shadow-sword
+          path: ink-shadow-sword-complete.mp4
