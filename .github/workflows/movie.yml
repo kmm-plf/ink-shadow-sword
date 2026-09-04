@@ -2,25 +2,14 @@ name: "墨影剑魂 - Generate Movie"
 
 on:
   workflow_dispatch:
-    inputs:
-      story:
-        description: "Story theme (default: 武侠水墨动画)"
-        required: false
-        default: "武侠水墨动画"
-        type: string
-
-concurrency:
-  group: movie-render
-  cancel-in-progress: true
-
-env:
-  AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
 
 jobs:
-  generate-images:
-    name: "🎨 Generate Images"
+  generate:
+    name: "墨影剑魂"
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       
@@ -29,76 +18,34 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install
-        run: pip install httpx
-      
-      - name: Generate Images
-        run: python scripts/gen_images.py
-      
-      - name: Upload Images
-        uses: actions/upload-artifact@v4
-        with:
-          name: images
-          path: output/
-          retention-days: 1
-
-  create-videos:
-    name: "🎬 Create Videos"
-    needs: generate-images
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install
+      - name: Install dependencies
         run: |
-          pip install edge-tts opencv-python-headless numpy
-          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pip install edge-tts opencv-python-headless numpy httpx
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          echo "=== Installed ==="
+          python3 --version
+          ffmpeg -version | head -1
       
-      - name: Download Images
-        uses: actions/download-artifact@v4
-        with:
-          name: images
-          path: output/
+      - name: Generate images
+        run: python3 scripts/gen_images.py
       
-      - name: Create Videos
-        run: python scripts/create_vids.py
+      - name: Create videos
+        run: python3 scripts/create_vids.py
       
-      - name: Upload Videos
+      - name: Synthesize movie
+        run: python3 scripts/synth.py
+      
+      - name: Upload movie
         uses: actions/upload-artifact@v4
         with:
-          name: videos
-          path: output/scenes/
-          retention-days: 1
-
-  synthesize:
-    name: "🎞️ Synthesize Movie"
-    needs: create-videos
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      
-      - name: Download Videos
-        uses: actions/download-artifact@v4
-        with:
-          name: videos
-          path: output/scenes/
-      
-      - name: Synthesize
-        run: python scripts/synth.py
-      
-      - name: Upload Movie
-        uses: actions/upload-artifact@v4
-        with:
-          name: ink-shadow-sword
+          name: ink-shadow-sword-complete
           path: ink-shadow-sword-complete.mp4
           retention-days: 90
+      
+      - name: Summary
+        run: |
+          SIZE=$(stat -c%s ink-shadow-sword-complete.mp4 2>/dev/null || echo 0)
+          echo "## 墨影剑魂 - 完成!" >> $GITHUB_STEP_SUMMARY
+          echo "- 文件大小: $((SIZE / 1024 / 1024)) MB" >> $GITHUB_STEP_SUMMARY
+          echo "- 请访问 Actions 下载" >> $GITHUB_STEP_SUMMARY
